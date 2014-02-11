@@ -43,17 +43,6 @@ int runECJ (int argc, char **argv);
 // #define OVERWRITE_LD_LIBRARY_PATH 1
 #define OVERWRITE_LD_LIBRARY_PATH 1
 
-// DQ (8/15/2011): Moved to openJavaParser_main.C to
-// separate the work on Java from the rest of ROSE and support the ROSE
-// configuration language only options.
-// DQ (10/21/2010): If Fortran is being supported then there will
-// be a definition of this pointer there.  Note that we currently
-// use only one pointer so that we can simplify how the JVM support 
-// is used for either Fortran or Java language support.
-#ifndef ROSE_BUILD_FORTRAN_LANGUAGE_SUPPORT
-SgSourceFile *OpenFortranParser_globalFilePointer = NULL;
-#endif
-
 // DQ (8/15/2011): These functions were moved to openJavaParser_main.C to
 // separate the work on Java from the rest of ROSE and support the ROSE
 // configuration language only options.
@@ -148,7 +137,7 @@ int runECJ (int argc, char **argv) {
     int retval= 0;
     /* start/find the Java VM with ofp method loaded,run ofp on the args */
     retval = jvm_ecj_processing(argc, argv);
-  
+
     return retval;
 }
 

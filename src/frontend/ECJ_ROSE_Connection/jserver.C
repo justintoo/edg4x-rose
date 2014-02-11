@@ -18,15 +18,12 @@
 // Interestingly it must be at the top of the list of include files.
 #include "rose_config.h"
 
-using namespace std;
-
 namespace Rose {
 namespace Frontend {
-namespace Fortran {
-namespace OpenFortranParser {
+namespace Java {
+namespace Ecj {
 
-// This is set in cmdline.cpp when the program's arguments are handled
-bool roseJavaRemoteDebug;
+using namespace std;
 
 typedef struct {
    JavaVM * jvm;
@@ -56,7 +53,6 @@ jclass   jserver_getJavaStringClass();
 #ifndef JNI_VERSION_1_1
 #define JNI_VERSION_1_1 1
 #endif
-
 
 /* 
  * This function does nothing since Java VM will
@@ -152,12 +148,12 @@ jserver_start(JvmT* je)
   //----------------------------------------------------------------------------
   // Add all our JVM options
   //----------------------------------------------------------------------------
-  // TOO1 (2/11/2014): JVM options now stored in the Cmdline::Fortran::OpenFortranParser namespace.
+  // TOO1 (2/11/2014): JVM options now stored in the Cmdline::Java::ECJ namespace.
   std::list<std::string> jvm_options =
-      Rose::Cmdline::Fortran::OpenFortranParser::jvm_options;
+      Rose::Cmdline::Java::Ecj::jvm_options;
 
   std::string classpath =
-      Rose::Cmdline::Fortran::OpenFortranParser::GetRoseClasspath();
+      Rose::Cmdline::Java::Ecj::GetRoseClasspath();
   jvm_options.push_back(classpath);
 
   jvm_args.nOptions = jvm_options.size();
@@ -165,6 +161,8 @@ jserver_start(JvmT* je)
   for(int i=0; i < jvm_args.nOptions; ++i)
   {
       std::string jvm_option = jvm_options.front();
+
+      std::cout << "[INFO] [ECJ] jvm_option[" << i << "] = " << jvm_option << std::endl;
 
       jvm_args.options[i].optionString =
           strdup(jvm_option.c_str());
@@ -247,7 +245,7 @@ jserver_getJavaStringArray(int argc, char **argv)
                 return NULL;
 
          /* Put all args from argv, after the first (which is this program's
-                 name) into the array of Strings for FortranMain.  The args array
+                 name) into the array of Strings for JavaMain.  The args array
                  for Java does not include the program name.  */
          for(i = 1; i < argc; i++)
            env->SetObjectArrayElement(argsStringArray, (jsize)i-1,
@@ -263,8 +261,8 @@ jserver_getJavaStringClass()
        return env->FindClass("java/lang/String");
 }
 
-}// ::Rose::Frontend::Fortran::OpenFortranParser
-}// ::Rose::Frontend::Fortran
-}// ::Rose::Frontend
-}// ::Rose
+}// Rose::Frontend::Java::Ecj
+}// Rose::Frontend::Java
+}// Rose::Frontend
+}// Rose
 
