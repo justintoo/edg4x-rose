@@ -15209,6 +15209,7 @@ SageInterface::supplementReplacementSymbolMap ( rose_hash::unordered_map<SgNode*
 #endif
 
 
+#if 0
 void
 SageInterface::deleteAST ( SgNode* n )
    {
@@ -15770,6 +15771,7 @@ SageInterface::deleteAST ( SgNode* n )
 
                         void visit (SgNode* node)
                         {
+
                         //These nodes are manually deleted because they cannot be visited by the traversal
                                 /*////////////////////////////////////////////////
                                 /remove SgVariableDefinition, SgVariableSymbol and SgEnumFieldSymbol
@@ -16289,7 +16291,7 @@ SageInterface::deleteAST ( SgNode* n )
      printf ("Leaving SageInterface::deleteAST(): n = %p = %s \n",n,n->class_name().c_str());
 #endif
    }
-
+#endif
 
 
 

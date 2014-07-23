@@ -685,7 +685,12 @@ SgMemberFunctionSymbol::get_declaration() const
      if (funcionDeclaration == NULL)
           return NULL;
      SgMemberFunctionDeclaration* memberFuncionDeclaration = isSgMemberFunctionDeclaration(funcionDeclaration);
+
+     //Reed Milewicz (7/23/2014): Removed this assertion as it was causing problems with AST Deletion routine.
+     #if 0
      ROSE_ASSERT(memberFuncionDeclaration != NULL);
+     #endif
+
      return memberFuncionDeclaration; 
    }
 

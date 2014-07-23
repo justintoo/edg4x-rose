@@ -7055,11 +7055,32 @@ SgSymbolTable::find( const SgInitializedName* initializedName)
   // while (p_iterator != p_table->end() && (*p_iterator).first == name)
      while (p_iterator != p_table->end() && get_table()->key_eq()((*p_iterator).first,name))
         {
-          assert(p_iterator->second != NULL);
-          SgNode* symbolBasis = p_iterator->second->get_symbol_basis();
+          //assert(p_iterator->second != NULL);
+          //SgNode* symbolBasis = p_iterator->second->get_symbol_basis();
+
+          SgSymbol* sym = p_iterator->second; //RMM
+          if(isSgAliasSymbol(sym)){
+                sym = isSgAliasSymbol(sym)->get_base();
+          }
+
+
+          SgNode* symbolBasis;
+          if(strcmp(sym->sage_class_name(),"SgNode") == 0)
+                symbolBasis = NULL;
+          else
+                symbolBasis  = sym->get_symbol_basis();
+
        // printf ("In loop: p_iterator->second = %p symbolBasis = %p initializedName = %p \n",p_iterator->second,symbolBasis,initializedName);
        // printf ("In loop: symbolBasis->variantT() = %d statement->variantT() = %d \n",symbolBasis->variantT(),initializedName->variantT());
+
+
+          //Reed Milewicz (7/23/2014): Removed this assertion. Instead, a symbol with no basis is skipped.
+          //This change was made to support AST deletion, where the deletion of a first non-defining declaration
+          //can in fact render symbolBasis NULL.
+          #if 0
           assert(symbolBasis != NULL);
+          #endif
+
           if (isSgInitializedName(symbolBasis) != NULL)
              {
             // printf ("found a SgInitializedName \n");
@@ -7154,16 +7175,40 @@ SgSymbolTable::find( const SgStatement* statement)
 #endif
 
        // This is a virtual function call (not defined for function type symbols)
-          SgNode* symbolBasis = p_iterator->second->get_symbol_basis();
+       // SgNode* symbolBasis = p_iterator->second->get_symbol_basis();
 #if 0
           printf ("In loop: symbolBasis->variantT() = %d = %s statement->variantT() = %d = %s \n",
                symbolBasis->variantT(),Cxx_GrammarTerminalNames[symbolBasis->variantT()].name.c_str(),
                statement->variantT(),Cxx_GrammarTerminalNames[statement->variantT()].name.c_str());
 #endif
-          assert(symbolBasis != NULL);
+     
+          #if 0
+          SgNode* symbolBasis = p_iterator->second->get_symbol_basis();
+          #endif
 
-          if (symbolBasis->variantT() == statement->variantT())
-             {
+          SgSymbol* sym = p_iterator->second; //RMM
+          //TMP
+          if(isSgAliasSymbol(sym)){
+                sym = isSgAliasSymbol(sym)->get_base();
+          }
+
+
+          SgNode* symbolBasis;
+          if(strcmp(sym->sage_class_name(),"SgNode") == 0)
+                symbolBasis = NULL;
+          else
+                symbolBasis  = sym->get_symbol_basis();
+
+
+          //Reed Milewicz (7/23/2014): Removed this assertion. Instead, a symbol with no basis is skipped.
+          //This change was made to support AST deletion, where the deletion of a first non-defining declaration
+          //can in fact render symbolBasis NULL.
+          #if 0
+          assert(symbolBasis != NULL);
+          #endif
+
+         if (symbolBasis != NULL && symbolBasis->variantT() == statement->variantT())
+	       {
 #if 0
                printf ("matching variants \n");
 #endif

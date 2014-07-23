@@ -1830,7 +1830,7 @@ Grammar::setUpStatements ()
   // TemplateInstantiationDirectiveStatement.setDataPrototype ( "SgDeclarationStatement*", "declaration", "= NULL",
   //            CONSTRUCTOR_PARAMETER, BUILD_ACCESS_FUNCTIONS, NO_TRAVERSAL, NO_DELETE, COPY_DATA);
      TemplateInstantiationDirectiveStatement.setDataPrototype ( "SgDeclarationStatement*", "declaration", "= NULL",
-                CONSTRUCTOR_PARAMETER, BUILD_ACCESS_FUNCTIONS, DEF_TRAVERSAL, NO_DELETE);
+                CONSTRUCTOR_PARAMETER, BUILD_ACCESS_FUNCTIONS, NO_TRAVERSAL, NO_DELETE);
 
      TemplateInstantiationDecl.setFunctionPrototype ( "HEADER_TEMPLATE_INSTANTIATION_DECLARATION_STATEMENT", "../Grammar/Statement.code" );
   // This might have to be made to be type == "int" but it makes more sense as a template_type_enum

@@ -10,6 +10,7 @@ noinst_LTLIBRARIES = libsageInterface.la
 libsageInterface_la_SOURCES      = \
      sageInterface.h \
      sageInterface.C \
+     ASTDeletion.C \
      sageInterface_type.C \
      generateUniqueName.C \
      sageBuilder.h \
