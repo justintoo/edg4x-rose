@@ -4,6 +4,8 @@
 #include <cstdlib>
 #include <vector>
 #include <deque>
+#include <map>
+#include <utility>
 namespace SI = SageInterface;
 
 //#define ASTDELETION_DEBUG_MINIMAL
@@ -11,6 +13,7 @@ namespace SI = SageInterface;
 //#define ASTDELETION_MEMORY_VISITOR_DEBUG
 //#define ASTDELETION_CLEANUP_DEBUG
 //#define ASTDELETION_TYPE_REMOVAL_DEBUG
+//#define ASTDELETION_SAFETYCHECK_DEBUG
 
 namespace ASTDeletionSupport {
 
@@ -284,18 +287,31 @@ class MemoryVisitor : public ROSE_VisitorPattern
 /* operation will not result in an AST that is invalid.						   */
 
 
+class DeletionAnnotation : public AstAttribute {
+
+	public:
+	DeletionAnnotation() { };
+	
+};
+
+
+
+
 //SafetyVisitor: Visitor class for the pre-deletion safety check traversal.
-class SafetyVisitor : public AstSimpleProcessing, ROSE_VisitTraversal
+class SafetyVisitor : public AstSimpleProcessing
 {
 	private:
 	bool safeToProceed;
-
+	std::multimap<SgSymbol*, SgNode*>* matchMap;
+	std::deque<SgSymbol*>* symbolList;
 	public:
 
 	//Constructor for the SafetyVisitor class.
 	SafetyVisitor(){
 		safeToProceed = true; //We assume that a deletion operation is safe unless we have evidence that indicates otherwise.
-	}
+		matchMap = new std::multimap<SgSymbol*, SgNode*>();	
+		symbolList = new std::deque<SgSymbol*>();
+	}	
 
 	//isSafeToProceed: Accessor function.
 	bool isSafeToProceed(){
@@ -305,74 +321,97 @@ class SafetyVisitor : public AstSimpleProcessing, ROSE_VisitTraversal
 	//The visit function for the class.
 	void visit (SgNode* node)
         {
-		if(SI::getProject()->get_verbose() <= 0 && !safeToProceed){
-			//If we do not intend on providing additional output and we know it is not safe to continue, we need check no more.
-			//printf("deleteAST: The safety check determined that the deletion cannot be performed.\n");
-               	 	//ROSE_ASSERT(safeToProceed); //TMP
-			return;
-		}
-
 		ROSE_ASSERT(node != NULL);
 		#ifdef ASTDELETION_SAFETYCHECK_DEBUG
 			printf("node: %s\n", node->sage_class_name());
 		#endif
 
-
 		SgSymbol* symbol = getAssociatedSymbol(node);
 
-		if(isSgSymbol(symbol) && node == symbol->get_symbol_basis()){
+		if(symbol && matchMap->find(symbol) == matchMap->end()){
+
+			symbolList->push_front(symbol);
+
 			#ifdef ASTDELETION_SAFETYCHECK_DEBUG
 				printf("deleteAST: Dispatching MemoryVisitor for symbol (%s).\n",symbol->sage_class_name());
 			#endif
+
 			MemoryVisitor visitor(symbol,true);
-			traverseMemoryPoolVisitorPattern(visitor);
-			#ifdef ASTDELETION_SAFETYCHECK_DEBUG
-				printf("deleteAST: MemoryVisitor traversal complete.\n");
-			#endif
-			bool safe  = visitor.isSafeToDelete();
-			if(!safe){
-				safeToProceed = false;
-				if (SI::getProject()->get_verbose() > 0) {
-					printf("deleteAST: Safety check violation. The following node cannot be deleted safely because it is the basis for a symbol that is used elsewhere.\n");
-					printNodeExt(node);
-				}
+                        traverseMemoryPoolVisitorPattern(visitor);
+			NodeContainer* matches = visitor.getMatches();
+			NodeContainer::iterator it = matches->begin();
+			while(it != matches->end()){
+				SgNode* current = *it;
+				matchMap->insert(std::pair<SgSymbol*,SgNode*>(symbol,current));
+				it++;
+                        }
+		}
+		node->addNewAttribute("DELETE_ANNOTATION", new DeletionAnnotation());
+	}
 
-				NodeContainer* matches = visitor.getMatches();
-				if (SI::getProject()->get_verbose() > 0) {
-					printf("deleteAST: %d other nodes are associated with this node's associated symbol.\n",matches->size()-1);
-				}
+	void atTraversalEnd() {
+		std::multimap<SgSymbol*, SgNode*>::iterator it;
+		for(it=matchMap->begin(); it!=matchMap->end(); ++it){
+			SgSymbol* sym = (*it).first;
+			SgNode* node = (*it).second;
 
+			if(sym->get_symbol_basis()->getAttribute("DELETE_ANNOTATION") && !isSgType(node->get_parent())){
+				ROSE_ASSERT(node->getAttribute("DELETE_ANNOTATION"));
+			}
 
-				if (SI::getProject()->get_verbose() > 1) {
-					NodeContainer::iterator it = matches->begin();
-					while(it != matches->end()){
-						SgNode* current = *it;
-						if(current != node){
-							if(isSgSymbol(current))
-								printf("node: %s\n", node->sage_class_name());
-							else
-								printNodeExt(current);
-						}
-						it++;
+		} 
+
+		std::deque<SgSymbol*>::iterator slIterator = symbolList->begin();	
+		while(slIterator != symbolList->end()){
+			SgSymbol* sym = *slIterator;
+			if(sym->get_symbol_basis()->getAttribute("DELETE_ANNOTATION")){
+				SgScopeStatement* scope = sym->get_scope();
+				SgSymbolTable* table = scope->get_symbol_table();
+                        	deleteSymbol(table,sym);
+			}
+
+			++slIterator;
+		}
+
+		#if 0
+		while(it != symbolList->end()){
+			SgSymbol* current = *it;
+			SgNode* symbolBasis = current->get_symbol_basis();
+			if(symbolBasis->getAttribute("DELETE_ANNOTATION")){
+				printf("basis...\n");
+				printNodeExt(symbolBasis);			
+
+				std::pair<std::multimap<SgSymbol*,SgNode*>::iterator, std::multimap<SgSymbol*,SgNode*>::iterator> ret;
+				ret = matchMap->equal_range(current);
+				std::multimap<SgSymbol*,SgNode*>::iterator matchMapIterator;
+				for(matchMapIterator = ret.first; matchMapIterator != ret.second; ++matchMapIterator){
+					printNodeExt((*matchMapIterator).second);
+					if((*matchMapIterator).second->getAttribute("DELETE_ANNOTATION") == NULL){
+						safeToProceed = false;
+						ROSE_ASSERT(safeToProceed == true);
 					}
 				}
-
 			}
+			++it;
 		}
+		#endif
+
 	}
+
 };
 
 
 
+#if 0
 //DeletionMark: This AstAttribute indicates that a node will be deleted after the traversal is complete because it is not safe to do so during the traversal.
 //More specifically, this is used to mark scopes, which we do not want to delete until after the traversal is complete because we may need to access their
 //symbol tables.
 class DeletionMark : public AstAttribute {
 	public:
-	
 	DeletionMark()
 	{};
 };
+#endif
 
 
 
@@ -396,11 +435,11 @@ class DeleteAST : public AstSimpleProcessing, ROSE_VisitTraversal
                                         printf("DeleteAST: Deleting node.\n");
                                 #endif
 
-                                #if defined(DELETION_DEBUG) || defined(ASTDELETION_DEBUG_MINIMAL)
+                                #if defined(ASTDELETION_DEBUG) || defined(ASTDELETION_DEBUG_MINIMAL)
   					printf("node: %s\n", node->sage_class_name());
                                 #endif
 
-
+				#if 0
 				//First, we check to see if the node has an associated symbol.
 				SgSymbol* symbol = getAssociatedSymbol(node);
 
@@ -449,6 +488,7 @@ class DeleteAST : public AstSimpleProcessing, ROSE_VisitTraversal
 					}
 
 				}
+				#endif
 
 
 				if(isSgInitializedName(node)){
@@ -467,6 +507,7 @@ class DeleteAST : public AstSimpleProcessing, ROSE_VisitTraversal
 					} 
                                 }
 
+				#if 0
 				if(isSgScopeStatement(node)){
 					#ifdef ASTDELETION_DEBUG
 						printf("DeleteAST: Current node is an SgScopeStatement. Deletion will be done after the traversal.\n");
@@ -475,7 +516,13 @@ class DeleteAST : public AstSimpleProcessing, ROSE_VisitTraversal
 					return;
 
 				}
+				#endif
 				
+
+				AstAttribute* attribute = node->getAttribute("DELETE_ANNOTATION");
+				ROSE_ASSERT(attribute != NULL);
+				node->removeAttribute("DELETE_ANNOTATION");
+				delete attribute;
 				delete node;
 				#ifdef ASTDELETION_DEBUG
 					printf("DeleteAST: Node deleted.\n");
@@ -485,6 +532,7 @@ class DeleteAST : public AstSimpleProcessing, ROSE_VisitTraversal
 
 	};
 
+#if 0
 //deleteMarkedScopes: Deletes SgScopeStatement nodes that have been marked for deletion during the traversal.
 void deleteMarkedScopes(){
 	class ScopeTraversal : public ROSE_VisitTraversal
@@ -506,84 +554,6 @@ void deleteMarkedScopes(){
 
 	ScopeTraversal scopeTraversal;
 	scopeTraversal.traverseMemoryPool();
-
-}
-
-
-#if 0
-bool isTypeUsed(SgType* ptr){
-	if(!ptr)
-		return false;
-
-	if(isSgPointerType(ptr) || isSgReferenceType(ptr) || isSgModifierType(ptr)){
-		if(isSgModifierType(ptr))
-			return isTypeUsed(isSgModifierType(ptr)->get_base_type());
-		else
-			return isTypeUsed(ptr->dereference());
-	}
-
-	if(isSgNamedType(ptr)){
-		SgNamedType* named_ptr = isSgNamedType(ptr);
-		SgDeclarationStatement* decl = named_ptr->getAssociatedDeclaration();
-		if(!decl){
-			return false;
-		} else if(!isSgScopeStatement(decl->get_scope())) {
-			//delete decl;
-			return false; //Is this correct?
-		}
-	}
-
-	if(isSgFunctionType(ptr)){
-
-
-	}
-
-
-	return true;
-}
-
-
-std::vector<SgType*> generateTypeList(){
-	class TypeTraversal : public ROSE_VisitTraversal
-        {
-          public:
-               std::vector<SgType*> typeList;
-               void visit ( SgNode* node)
-                  {
-                    SgType* type = isSgType(node);
-                    if (type != NULL)
-                       {
-                         typeList.push_back(type);
-                       }
-                  };
-
-              virtual ~TypeTraversal() {}
-        };
-
-	TypeTraversal typeTraversal;
-	typeTraversal.traverseMemoryPool();
-	
-	return typeTraversal.typeList;
-}
-
-void removeUnusedTypes(){
-	std::vector<SgType*> typeList = generateTypeList();
-	#ifdef ASTDELETION_TYPE_REMOVAL_DEBUG
-		std::cout << "SgType count (before):" << typeList.size() << std::endl;
-	#endif
-
-	int typeDeleteCount = 0;
-	for (std::vector<SgType*>::iterator it = typeList.begin() ; it != typeList.end(); ++it){
-		SgType* t = *it;
-		if(!isTypeUsed(t)){
-			typeDeleteCount++;
-
-			delete t->get_typedefs();
-			delete t->get_modifiers();
-			delete t;
-		}
-	}	
-	printf("type delete count: %d\n",typeDeleteCount);
 
 }
 #endif
@@ -610,13 +580,7 @@ void SageInterface::deleteAST ( SgNode* n )
 	ASTDeletionSupport::SafetyVisitor safetyChecker;
         safetyChecker.traverse(n,postorder);
 	
-
-	//If -rose:verbose is not set and we find that it is not safe to proceed during the traversal, 
-	//an assertion in the visit function will terminate the program before we reach this point.
-	if(!safetyChecker.isSafeToProceed()){
-		printf("deleteAST: The safety check determined that the deletion cannot be performed.\n");
-		ROSE_ASSERT(safetyChecker.isSafeToProceed());
-	}
+	
 	
 
 	ASTDeletionSupport::DeleteAST deleteTree;
@@ -625,7 +589,8 @@ void SageInterface::deleteAST ( SgNode* n )
 	#if 0
 	ASTDeletionSupport::removeUnusedTypes();
 	#endif
-
+	
+	#if 0
 	ASTDeletionSupport::deleteMarkedScopes();
-
+	#endif
    }
