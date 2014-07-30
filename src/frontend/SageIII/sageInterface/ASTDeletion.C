@@ -83,7 +83,7 @@ SgSymbol* handleDeclaration(SgDeclarationStatement* decl){
 	if(decl_to_search->get_firstNondefiningDeclaration()==NULL ||  decl_to_search->get_firstNondefiningDeclaration()->get_firstNondefiningDeclaration() == NULL)
 		return NULL;
 	
-	SgSymbol* symbol = decl_to_search->get_symbol_from_symbol_table();
+	SgSymbol* symbol = decl_to_search->search_for_symbol_from_symbol_table();
 	
 	return symbol;
 }
@@ -126,10 +126,8 @@ SgSymbol* getAssociatedSymbol(SgNode* node){
 	if(isSgInitializedName(node)) {
 		SgInitializedName* iname = isSgInitializedName(node);
 		
-		//Is this really needed?
-		//if(isSgCtorInitializerList(iname->get_declaration()))
-		//	return NULL;
-	
+
+		//Now that we don't do this lookup in the middle of our deletion, we can probably take checks like these out.
 		if(iname->get_scope() == NULL || (iname->get_prev_decl_item()  != NULL && strcmp(iname->get_prev_decl_item()->sage_class_name(),"SgNode") == 0))
 			return NULL;
 		 
@@ -290,7 +288,12 @@ class MemoryVisitor : public ROSE_VisitorPattern
 class DeletionAnnotation : public AstAttribute {
 
 	public:
-	DeletionAnnotation() { };
+
+	bool isTraversed; //This is true except for special cases (e.g. some first non-defining declarations).
+
+	DeletionAnnotation() { isTraversed = true; };
+
+	DeletionAnnotation(bool v) { isTraversed = v; };
 	
 };
 
@@ -327,16 +330,20 @@ class SafetyVisitor : public AstSimpleProcessing
 		#endif
 
 		SgSymbol* symbol = getAssociatedSymbol(node);
-
+		
 		if(symbol && matchMap->find(symbol) == matchMap->end()){
-
 			symbolList->push_front(symbol);
 
 			#ifdef ASTDELETION_SAFETYCHECK_DEBUG
 				printf("deleteAST: Dispatching MemoryVisitor for symbol (%s).\n",symbol->sage_class_name());
 			#endif
 
-			MemoryVisitor visitor(symbol,true);
+			SgSymbol* symToSearch = symbol;
+			if(isSgAliasSymbol(symToSearch))
+				symToSearch = isSgAliasSymbol(symToSearch)->get_base();
+
+
+			MemoryVisitor visitor(symToSearch,true);
                         traverseMemoryPoolVisitorPattern(visitor);
 			NodeContainer* matches = visitor.getMatches();
 			NodeContainer::iterator it = matches->begin();
@@ -346,8 +353,32 @@ class SafetyVisitor : public AstSimpleProcessing
 				it++;
                         }
 		}
-		node->addNewAttribute("DELETE_ANNOTATION", new DeletionAnnotation());
+
+		//Special case for handling non-defining declarations that ought to be deleted but aren't going to be traversed.
+		if(isSgDeclarationStatement(node)){
+			SgDeclarationStatement* decl = isSgDeclarationStatement(node);
+			SgDeclarationStatement* fndd = decl->get_firstNondefiningDeclaration();
+			if(decl != fndd && fndd && fndd->get_firstNondefiningDeclaration() == fndd){
+				if(!fndd->attributeExists("DELETION_ANNOTATION") && fndd->get_scope()->attributeExists("DELETION_ANNOTATION")) {
+					printf("Marking %s.\n",fndd->sage_class_name()); //REMOVEME
+					fndd->addNewAttribute("DELETION_ANNOTATION", new DeletionAnnotation(false));
+				}
+			}
+		}
+
+		node->addNewAttribute("DELETION_ANNOTATION", new DeletionAnnotation());
 	}
+
+
+	bool arrayTypeExprCheck(SgNode* node){
+		if(!node)
+			return false;
+		if(isSgArrayType(node))
+			return true;
+		SgNode* parent = node->get_parent();
+		return arrayTypeExprCheck(parent);
+	}
+
 
 	void atTraversalEnd() {
 		std::multimap<SgSymbol*, SgNode*>::iterator it;
@@ -355,8 +386,8 @@ class SafetyVisitor : public AstSimpleProcessing
 			SgSymbol* sym = (*it).first;
 			SgNode* node = (*it).second;
 
-			if(sym->get_symbol_basis()->getAttribute("DELETE_ANNOTATION") && !isSgType(node->get_parent())){
-				ROSE_ASSERT(node->getAttribute("DELETE_ANNOTATION"));
+			if(sym->get_symbol_basis()->getAttribute("DELETION_ANNOTATION")){
+				ROSE_ASSERT(node->getAttribute("DELETION_ANNOTATION") || arrayTypeExprCheck(node));
 			}
 
 		} 
@@ -364,7 +395,7 @@ class SafetyVisitor : public AstSimpleProcessing
 		std::deque<SgSymbol*>::iterator slIterator = symbolList->begin();	
 		while(slIterator != symbolList->end()){
 			SgSymbol* sym = *slIterator;
-			if(sym->get_symbol_basis()->getAttribute("DELETE_ANNOTATION")){
+			if(sym->get_symbol_basis()->getAttribute("DELETION_ANNOTATION")){
 				SgScopeStatement* scope = sym->get_scope();
 				SgSymbolTable* table = scope->get_symbol_table();
                         	deleteSymbol(table,sym);
@@ -372,29 +403,6 @@ class SafetyVisitor : public AstSimpleProcessing
 
 			++slIterator;
 		}
-
-		#if 0
-		while(it != symbolList->end()){
-			SgSymbol* current = *it;
-			SgNode* symbolBasis = current->get_symbol_basis();
-			if(symbolBasis->getAttribute("DELETE_ANNOTATION")){
-				printf("basis...\n");
-				printNodeExt(symbolBasis);			
-
-				std::pair<std::multimap<SgSymbol*,SgNode*>::iterator, std::multimap<SgSymbol*,SgNode*>::iterator> ret;
-				ret = matchMap->equal_range(current);
-				std::multimap<SgSymbol*,SgNode*>::iterator matchMapIterator;
-				for(matchMapIterator = ret.first; matchMapIterator != ret.second; ++matchMapIterator){
-					printNodeExt((*matchMapIterator).second);
-					if((*matchMapIterator).second->getAttribute("DELETE_ANNOTATION") == NULL){
-						safeToProceed = false;
-						ROSE_ASSERT(safeToProceed == true);
-					}
-				}
-			}
-			++it;
-		}
-		#endif
 
 	}
 
@@ -415,6 +423,7 @@ class DeletionMark : public AstAttribute {
 
 
 
+
 /**** DELETION ****/
 /* Below is the deletion routine proper, the heart of the deleteAST algorithm. The DeleteAST	   */
 /* visitor traverses the selected subtree in post-order, cleanly and thoroughly deleting each node */
@@ -423,14 +432,167 @@ class DeletionMark : public AstAttribute {
 
 
 //DeleteAST: The is the visitor for the deletion traversal.
-class DeleteAST : public AstSimpleProcessing, ROSE_VisitTraversal
+class DeleteAST : public AstSimpleProcessing //, ROSE_VisitTraversal
 	{
         	public:
 
-                        void visit (SgNode* node)
+
+		void clean(SgNode* node){
+			ROSE_ASSERT(node != NULL);
+
+                        #if defined(ASTDELETION_DEBUG) || defined(ASTDELETION_DEBUG_MINIMAL)
+  				printf("deleteAST: node: %s\n", node->sage_class_name());
+                        #endif
+
+			Sg_File_Info* info = node->get_file_info();
+			if(info)
+				delete info;
+				
+			if(isSgLocatedNode(node) && node->attributeExists("DELETION_ANNOTATION")){
+				AstAttribute* attribute = node->getAttribute("DELETION_ANNOTATION");
+				ROSE_ASSERT(attribute != NULL);
+				node->removeAttribute("DELETION_ANNOTATION");
+				delete attribute;
+			}
+			delete node;
+
+
+		}
+
+
+			
+		void visit(SgNode* node){
+
+			if(isSgDeclarationStatement(node)) {
+
+				//Check to see if there is a non-defining declaration that needs to be deleted.
+				SgDeclarationStatement* fndd = isSgDeclarationStatement(node)->get_firstNondefiningDeclaration();
+				if(node != fndd && fndd && fndd->get_firstNondefiningDeclaration() == fndd){
+					DeletionAnnotation* attribute = (DeletionAnnotation*) fndd->getAttribute("DELETION_ANNOTATION");
+					if(attribute && !attribute->isTraversed ){
+						visit(fndd);
+					}
+				}
+
+
+				if(isSgTemplateDeclaration(node)){
+                                        SgTemplateParameterPtrList tempparams = isSgTemplateDeclaration(node)->get_templateParameters();
+                                        SgTemplateParameterPtrList::iterator current = tempparams.begin();
+                                        while(current != tempparams.end()) {
+                                                SgTemplateParameter* tempparam = isSgTemplateParameter(*current);
+                                                if(tempparam){
+                                                        visit(tempparam);
+                                                }
+                                                ++current;
+                                        }
+				}
+
+
+                                if(isSgTemplateInstantiationDecl(node)){
+                                        SgTemplateArgumentPtrList tempargs = isSgTemplateInstantiationDecl(node)->get_templateArguments();
+
+                                        SgTemplateArgumentPtrList::iterator current = tempargs.begin();
+                                        while(current != tempargs.end()) {
+                                                SgTemplateArgument* temparg = isSgTemplateArgument(*current);
+                                                if(temparg){
+                                                        visit(temparg);
+                                                }
+                                                ++current;
+                                        }
+                                }
+
+				if(isSgScopeStatement(node)){
+
+					if(isSgClassDefinition(node)){
+						SgBaseClassPtrList baseclassptrs = isSgClassDefinition(node)->get_inheritances();
+                                        	SgBaseClassPtrList::iterator current = baseclassptrs.begin();
+                                        	while(current != baseclassptrs.end()) {
+                                                	SgBaseClass* baseclass = isSgBaseClass(*current);
+                                                	if(baseclass){
+                                                        	visit(baseclass);
+                                                	}
+                                                	++current;
+                                        	}
+					}
+
+					if(isSgNamespaceDefinitionStatement(node)){
+						SgNamespaceDefinitionStatement* nds = isSgNamespaceDefinitionStatement(node);
+						
+						if(nds->get_nextNamespaceDefinition() != NULL)
+							visit(nds->get_nextNamespaceDefinition());
+
+					}
+
+					SgSymbolTable* symboltable = isSgScopeStatement(node)->get_symbol_table();
+					SgTypeTable* typetable = isSgScopeStatement(node)->get_type_table();
+					visit(symboltable);
+					visit(typetable);
+				}
+
+			} else if(isSgInitializedName(node)){
+
+                        	SgDeclarationStatement* def = isSgInitializedName(node)->get_definition();
+				if(isSgVariableDefinition(def))
+					visit(def);
+
+			} else if(isSgProject(node)) {
+				visit(isSgProject(node)->get_directoryList());
+
+				SgTypeTable* globaltypetable = SgNode::get_globalTypeTable();
+				visit(globaltypetable);
+				
+				SgFunctionTypeTable* globalfunctiontypetable = SgNode::get_globalFunctionTypeTable();
+				visit(globalfunctiontypetable);
+
+
+			} else if(isSgSymbolTable(node)){
+				std::set<SgNode*> remainingSymbols = isSgSymbolTable(node)->get_symbols();
+				for (std::set<SgNode*>::iterator it=remainingSymbols.begin(); it!=remainingSymbols.end(); ++it){
+					SgSymbol* sym = isSgSymbol(*it);
+					SgNode* basis = sym->get_symbol_basis();
+					visit(basis);
+					delete sym;
+				}
+
+			} else if(isSgTypeTable(node)){
+				SgSymbolTable* symtable = isSgTypeTable(node)->get_type_table(); 
+				std::set<SgNode*> remainingTypes = symtable->get_symbols();
+				for (std::set<SgNode*>::iterator it=remainingTypes.begin(); it!=remainingTypes.end(); ++it){
+					SgSymbol* sym = isSgSymbol(*it);
+					SgType* type = sym->get_type();
+					delete type->get_typedefs();
+					delete type;
+					delete sym;
+				}
+				clean(symtable);
+				
+			} else if(isSgFunctionTypeTable(node)) {
+				SgSymbolTable* fttable = isSgFunctionTypeTable(node)->get_function_type_table();
+				std::set<SgNode*> ftremainingSymbols = fttable->get_symbols();
+				for (std::set<SgNode*>::iterator it=ftremainingSymbols.begin(); it!=ftremainingSymbols.end(); ++it){
+					SgFunctionTypeSymbol* typeSym = isSgFunctionTypeSymbol(*it);
+					SgFunctionType* type = isSgFunctionType(typeSym->get_type()); 
+					delete type->get_argument_list();
+					delete type->get_typedefs();
+					delete type;
+					delete typeSym;
+				}
+				clean(fttable);
+			}
+
+			clean(node);
+	
+
+			#if 0
+                        void visit(SgNode* node)
                         {
 
 				ROSE_ASSERT(node != NULL);
+				printf("HAI!\n");
+				//clean(node);
+				return;
+
+				#if 0
                                 #ifdef ASTDELETION_DEBUG
                                         printf("DeleteAST: Deleting node.\n");
                                 #endif
@@ -439,61 +601,13 @@ class DeleteAST : public AstSimpleProcessing, ROSE_VisitTraversal
   					printf("node: %s\n", node->sage_class_name());
                                 #endif
 
-				#if 0
-				//First, we check to see if the node has an associated symbol.
-				SgSymbol* symbol = getAssociatedSymbol(node);
 
-				if(isSgSymbol(symbol)){
-					#ifdef ASTDELETION_DEBUG
-						printf("deleteAST: Dispatching MemoryVisitor for symbol (%s).\n",symbol->sage_class_name());
-					#endif
-
-					//We instantiate a MemoryVisitor to check to see whether the symbol can be safely deleted.
-					MemoryVisitor visitor(symbol);
-					traverseMemoryPoolVisitorPattern(visitor);
-
-					#ifdef ASTDELETION_DEBUG
-						printf("deleteAST: MemoryVisitor traversal complete.\n");
-					#endif
-					bool safe  = visitor.isSafeToDelete();
-
-					if(safe){
-						//If the symbol is safe to delete according to the criteria of the MemoryVisitor, we do so here.
-
-						#ifdef ASTDELETION_DEBUG
-							printf("deleteAST: symbol is safe to delete.\n");
-						#endif
-						if(isSgVarRefExp(node) || isSgFunctionRefExp(node) || isSgMemberFunctionRefExp(node) || isSgClassNameRefExp(node) || isSgThisExp(node)) {
-							delete symbol;
-							#ifdef ASTDELETION_DEBUG
-								printf("deleteAST: symbol deleted without going to symbol table.\n");
-							#endif
-						} else {
-							ROSE_ASSERT(symbol->get_symbol_basis() != NULL);							
-							SgSymbolTable* table = symbol->get_scope()->get_symbol_table();
-							if(table){
-								deleteSymbol(table,symbol);
-								#ifdef ASTDELETION_DEBUG
-									printf("deleteAST: symbol deleted.\n");
-								#endif
-							}
-
-
-						}
-					} else {
-						#ifdef ASTDELETION_DEBUG
-							printf("deleteAST: symbol is NOT safe to delete.\n");
-						#endif
-						
-					}
-
-				}
-				#endif
 
 
 				if(isSgInitializedName(node)){
                                         //remove SgVariableDefinition
                                         SgDeclarationStatement* def;
+
 					def =  ((SgInitializedName *)node)->get_definition();
                                         if(isSgVariableDefinition(def)){
 						
@@ -507,28 +621,141 @@ class DeleteAST : public AstSimpleProcessing, ROSE_VisitTraversal
 					} 
                                 }
 
-				#if 0
-				if(isSgScopeStatement(node)){
-					#ifdef ASTDELETION_DEBUG
-						printf("DeleteAST: Current node is an SgScopeStatement. Deletion will be done after the traversal.\n");
-					#endif
-					node->addNewAttribute("DELETEMARK", new DeletionMark()); //Mark the node so we know to delete it later.
-					return;
+
+
+				//Check to see if there is a non-defining declaration that needs to be deleted.
+				if(isSgDeclarationStatement(node)){
+					SgDeclarationStatement* decl = isSgDeclarationStatement(node);
+					SgDeclarationStatement* fndd = decl->get_firstNondefiningDeclaration();
+					if(decl != fndd && fndd && fndd->get_firstNondefiningDeclaration() == fndd){
+						DeletionAnnotation* attribute = (DeletionAnnotation*) fndd->getAttribute("DELETION_ANNOTATION");
+						if(attribute && !attribute->isTraversed ){
+							delete attribute;
+							delete fndd;
+						}
+					}
 
 				}
-				#endif
-				
 
-				AstAttribute* attribute = node->getAttribute("DELETE_ANNOTATION");
-				ROSE_ASSERT(attribute != NULL);
-				node->removeAttribute("DELETE_ANNOTATION");
-				delete attribute;
+
+				if(isSgTemplateDeclaration(node)){
+                                        SgTemplateParameterPtrList tempparams = isSgTemplateDeclaration(node)->get_templateParameters();
+                                        SgTemplateParameterPtrList::iterator current = tempparams.begin();
+                                        while(current != tempparams.end()) {
+                                                SgTemplateParameter* tempparam = isSgTemplateParameter(*current);
+                                                if(tempparam){
+                                                        delete tempparam;
+                                                }
+                                                ++current;
+                                        }
+
+				}
+
+                                if(isSgTemplateInstantiationDecl(node)){
+                                        SgTemplateArgumentPtrList tempargs = isSgTemplateInstantiationDecl(node)->get_templateArguments();
+
+                                        SgTemplateArgumentPtrList::iterator current = tempargs.begin();
+                                        while(current != tempargs.end()) {
+                                                SgTemplateArgument* temparg = isSgTemplateArgument(*current);
+                                                if(temparg){
+                                                        delete temparg;
+                                                }
+                                                ++current;
+                                        }
+                                }
+
+
+				if(isSgClassDefinition(node)){
+					SgBaseClassPtrList baseclassptrs = isSgClassDefinition(node)->get_inheritances();
+                                        SgBaseClassPtrList::iterator current = baseclassptrs.begin();
+                                        while(current != baseclassptrs.end()) {
+                                                SgBaseClass* baseclass = isSgBaseClass(*current);
+                                                if(baseclass){
+                                                        delete baseclass;
+                                                }
+                                                ++current;
+                                        }
+				}
+
+
+
+				//BOOKMARK
+
+				//#if 0
+				if(isSgScopeStatement(node)){
+					SgSymbolTable* symboltable = isSgScopeStatement(node)->get_symbol_table();
+					std::set<SgNode*> remainingSymbols = symboltable->get_symbols();
+					for (std::set<SgNode*>::iterator it=remainingSymbols.begin(); it!=remainingSymbols.end(); ++it){
+						SgSymbol* sym = isSgSymbol(*it);
+						SgNode* basis = sym->get_symbol_basis();
+						visit(basis);
+						delete *it;
+					}
+					delete symboltable;
+
+					SgTypeTable* typetable = isSgScopeStatement(node)->get_type_table();
+					std::set<SgNode*> remainingTypes = typetable->get_type_table()->get_symbols();
+					for (std::set<SgNode*>::iterator it=remainingTypes.begin(); it!=remainingTypes.end(); ++it){
+						SgSymbol* sym = isSgSymbol(*it);
+						SgType* type = sym->get_type();
+						delete type->get_typedefs();
+						delete type;
+						delete sym;
+					}
+					delete typetable;
+
+					/*
+					if(isSgNamespaceDefinitionStatement(node)){
+						SgNamespaceDefinitionStatement* defstmt = isSgNamespaceDefinitionStatement(node);
+						if(defstmt->get_namespaceDeclaration()->get_firstNondefiningDeclaration() ==	
+				
+					}
+					*/
+
+					/*
+					if(isSgScopeStatement(node)->containsOnlyDeclarations()){
+						SgDeclarationStatementPtrList declPtrList = isSgScopeStatement(node)->getDeclarationList();
+						for(SgDeclarationStatementPtrList::iterator it=declPtrList.begin(); it!=declPtrList.end(); ++it){
+							delete *it;
+						} 
+					}
+
+					
+					if(isSgGlobal(node)){
+						SgDeclarationStatementPtrList declPtrList = isSgGlobal(node)->get_declarations();
+						for(SgDeclarationStatementPtrList::iterator it=declPtrList.begin(); it!=declPtrList.end(); ++it){
+							delete *it;
+						} 
+					}
+					*/
+
+				}
+				//#endif
+
+
+				if(isSgProject(node)){
+					SgProject* p = isSgProject(node);
+
+				}
+	
+
+				Sg_File_Info* info = node->get_file_info();
+				if(info)
+					delete info;
+				
+				if(node->attributeExists("DELETION_ANNOTATION")){
+					AstAttribute* attribute = node->getAttribute("DELETION_ANNOTATION");
+					ROSE_ASSERT(attribute != NULL);
+					node->removeAttribute("DELETION_ANNOTATION");
+					delete attribute;
+				}
 				delete node;
 				#ifdef ASTDELETION_DEBUG
 					printf("DeleteAST: Node deleted.\n");
 				#endif
+				#endif
+				#endif
 			};
-
 
 	};
 
@@ -578,7 +805,7 @@ void SageInterface::deleteAST ( SgNode* n )
 
 	
 	ASTDeletionSupport::SafetyVisitor safetyChecker;
-        safetyChecker.traverse(n,postorder);
+        safetyChecker.traverse(n,preorder);
 	
 	
 	
