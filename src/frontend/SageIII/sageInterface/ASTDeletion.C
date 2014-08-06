@@ -1,12 +1,12 @@
 #include "sage3basic.h"
 #include "ASTDeletion.h"
 
-#define ASTDELETION_DEBUG_MINIMAL
+//#define ASTDELETION_DEBUG_MINIMAL
 //#define ASTDELETION_DEBUG
 //#define ASTDELETION_MEMORY_VISITOR_DEBUG
-#define ASTDELETION_CLEANUP_DEBUG
+//#define ASTDELETION_CLEANUP_DEBUG
 //#define ASTDELETION_TYPE_REMOVAL_DEBUG
-#define ASTDELETION_SAFETYCHECK_DEBUG
+//#define ASTDELETION_SAFETYCHECK_DEBUG
 
 
 void ASTDeletionSupport::printNode(SgNode* node) {
@@ -199,7 +199,6 @@ ASTDeletionSupport::NodeContainer* ASTDeletionSupport::MemoryVisitor::getMatches
     return matches;
 }
 
-//ASTDeletionSupport::DeletionAnnotation::DeletionAnnotation() {  }
 
 
 ASTDeletionSupport::SafetyVisitor::SafetyVisitor(){
@@ -262,7 +261,12 @@ void ASTDeletionSupport::SafetyVisitor::atTraversalEnd() {
         SgSymbol* sym = (*it).first;
         SgNode* node = (*it).second;
         if(sym->get_symbol_basis()->attributeExists("DELETION_ANNOTATION")){
-            ROSE_ASSERT(node->attributeExists("DELETION_ANNOTATION") ||  !isSgProject(reachProject(node)) ||  SageInterface::getScope(node)->attributeExists("DELETION_ANNOTATION"));
+            if(!(node->attributeExists("DELETION_ANNOTATION") ||  !isSgProject(reachProject(node)) ||  SageInterface::getScope(node)->attributeExists("DELETION_ANNOTATION"))) {
+                 safeToProceed = false;
+                 #ifdef ASTDELETION_SAFETYCHECK_DEBUG
+                       printf("Deletion Safety Check Violation: Want to delete the basis for a symbol (%s), but the symbol is used by another node (%s) that will not be deleted.\n",sym->get_symbol_basis()->class_name().c_str(), node->class_name().c_str());
+                 #endif
+            }
         }
     } 
 
@@ -359,11 +363,26 @@ void ASTDeletionSupport::DeleteAST::visit(SgNode* node){
 };
 
 
+
 ASTDeletionSupport::CleanupVisitor::CleanupVisitor() {
     nodes = new NodeContainer();
 }
 
 ASTDeletionSupport::CleanupVisitor::~CleanupVisitor() {
+    delete nodes;
+}
+
+
+void ASTDeletionSupport::CleanupVisitor::visitDefault(SgNode* node){
+     if(node->variantT() == V_SgNode)
+          return;
+     SgNode* urnode = reachProject(node);
+     if(!(isSgProject(urnode) || isSgType(urnode))) {
+               nodes->push_front(node);
+          }
+}
+
+void ASTDeletionSupport::CleanupVisitor::finish() {
     std::map<std::string,int> countMap;
     for(NodeContainer::iterator it = nodes->begin(); it != nodes->end(); it++){
          SgNode* n = *it;
@@ -385,52 +404,23 @@ ASTDeletionSupport::CleanupVisitor::~CleanupVisitor() {
          }
     #endif
 
-    delete nodes;
+
+
 }
 
-
-void ASTDeletionSupport::CleanupVisitor::visitDefault(SgNode* node){
-     if(node->variantT() == V_SgNode)
-          return;
-     if(isSgLocatedNode(node) || isSgSupport(node)){
-          SgNode* urnode = reachProject(node);
-          if(!(isSgProject(urnode) || isSgType(urnode))) {
-               nodes->push_front(node);
-          }
-     }
-
-#if 0
-     else if(isSgSymbol(node)) {
-         if(isSgAliasSymbol(node) && (isSgAliasSymbol(node)->get_alias() == NULL || isSgAliasSymbol(node)->get_alias()->variantT() == V_SgNode)) {
-                   nodes->push_front(node);
-         } else if(!isSgAliasSymbol(node) && (isSgSymbol(node)->get_symbol_basis() == NULL || isSgSymbol(node)->get_symbol_basis()->variantT() == V_SgNode)) {
-                   nodes->push_front(node);
-         }
-     } else if(isSgType(node)){
-
-         if(isSgNamedType(node) && (isSgNamedType(node)->get_declaration() == NULL || isSgNamedType(node)->get_declaration()->variantT() == V_SgNode))
-               nodes->push_front(node);
-         else if((isSgPointerType(node) || isSgReferenceType(node)) && (isSgType(node)->dereference() == NULL || isSgType(node)->dereference()->variantT() == V_SgNode))
-               nodes->push_front(node);
-         else if(isSgModifierType(node) && (isSgModifierType(node)->get_base_type() == NULL || isSgModifierType(node)->get_base_type()->variantT() == V_SgNode))
-               nodes->push_front(node);
-
-     }
-#endif
+void SageInterface::cleanMemoryPool(){
+    ASTDeletionSupport::CleanupVisitor cleanup;
+    traverseMemoryPoolVisitorPattern(cleanup);
+    cleanup.finish();
 }
 
 
 void SageInterface::deleteAST ( SgNode* n ){
     ROSE_ASSERT(n != NULL);
 
-
     ASTDeletionSupport::SafetyVisitor safetyChecker;
     safetyChecker.traverse(n,preorder); 
-    
-    
+    ROSE_ASSERT(safetyChecker.isSafeToProceed());
     ASTDeletionSupport::DeleteAST deleteTree;
     deleteTree.traverse(n,postorder);
-
-    //ASTDeletionSupport::CleanupVisitor cleanup;
-    //traverseMemoryPoolVisitorPattern(cleanup);
 }
