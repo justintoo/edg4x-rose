@@ -37,7 +37,8 @@ pkginclude_HEADERS = \
      sageGeneric.h \
      sageFunctors.h \
      integerOps.h \
-     abiStuff.h
+     abiStuff.h \
+     ASTDeletion.h
 #     highLevelInterface.h
 #     loopHelpers.h
 
