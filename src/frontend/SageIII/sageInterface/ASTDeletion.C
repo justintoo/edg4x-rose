@@ -70,8 +70,12 @@ SgSymbol* ASTDeletionSupport::handleDeclaration(SgDeclarationStatement* decl){
     if(decl_to_search->get_firstNondefiningDeclaration()==NULL ||  decl_to_search->get_firstNondefiningDeclaration()->get_firstNondefiningDeclaration() == NULL)
         return NULL;
 
+    //TMPTEST
+    if(isSgTemplateDeclaration(decl_to_search) && !decl_to_search->get_declaration_associated_with_symbol())
+         return NULL;
+    if(isSgNamespaceAliasDeclarationStatement(decl_to_search))
+         return decl_to_search->get_symbol_from_symbol_table();
 
-    //TMP
     if(isSgUseStatement(decl_to_search) || isSgNamelistStatement(decl_to_search) || isSgFortranIncludeLine(decl_to_search) || isSgCommonBlock(decl_to_search) || isSgFormatStatement(decl_to_search) || isSgImplicitStatement(decl_to_search) || 
     isSgAttributeSpecificationStatement(decl_to_search) || isSgJavaPackageStatement(decl_to_search) || isSgJavaImportStatement(decl_to_search)) {
         return NULL;
