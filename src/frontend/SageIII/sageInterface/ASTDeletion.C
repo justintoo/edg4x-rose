@@ -1,5 +1,5 @@
 #include "sage3basic.h"
-//#include "ASTDeletion.h"
+#include "ASTDeletion.h"
 
 //#define ASTDELETION_DEBUG_MINIMAL
 //#define ASTDELETION_DEBUG

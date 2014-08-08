@@ -1,3 +1,5 @@
+#ifndef ROSE_SI_ASTDELETION
+#define ROSE_SI_ASTDELETION
 #include <iostream>
 #include <cstdlib>
 #include <vector>
@@ -57,7 +59,7 @@ namespace ASTDeletionSupport {
         private:
         NodeContainer* matches; //A list of nodes whose associated symbol is the symbol passed to the MemoryVisitor.
         SgSymbol* symbol;
-	void updateStatus();
+        void updateStatus();
         
         public:
         MemoryVisitor(SgSymbol* s);
@@ -141,3 +143,5 @@ namespace SageInterface {
     ROSE_DLL_API void deleteAST ( SgNode* n );
     ROSE_DLL_API void cleanMemoryPool();
 };
+
+#endif
