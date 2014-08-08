@@ -1,5 +1,5 @@
 #include "sage3basic.h"
-#include "ASTDeletion.h"
+//#include "ASTDeletion.h"
 
 //#define ASTDELETION_DEBUG_MINIMAL
 //#define ASTDELETION_DEBUG
@@ -295,8 +295,8 @@ void ASTDeletionSupport::DeleteAST::clean(SgNode* node){
     #endif
 
     if(isSgLocatedNode(node) && node->attributeExists("DELETION_ANNOTATION")){
-	AstAttribute* attribute = node->getAttribute("DELETION_ANNOTATION");
-	node->removeAttribute("DELETION_ANNOTATION");
+AstAttribute* attribute = node->getAttribute("DELETION_ANNOTATION");
+node->removeAttribute("DELETION_ANNOTATION");
         delete attribute;
     }
     

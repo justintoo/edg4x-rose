@@ -2,6 +2,7 @@
 #define ROSE_SAGE_INTERFACE
 
 #include "sage3basic.hhh"
+#include "ASTDeletion.h"
 #include <stdint.h>
 #include <utility>
 
@@ -1555,7 +1556,9 @@ NodeType* getEnclosingNode(const SgNode* astNode, const bool includingSelf = fal
 
 // DQ (2/24/2009): Simple function to delete an AST subtree (used in outlining).
 //! Function to delete AST subtree's nodes only, users must take care of any dangling pointers, symbols or types that result.
+#if 0
 ROSE_DLL_API void deleteAST(SgNode* node);
+#endif
 
 //! Special purpose function for deleting AST expression tress containing valid original expression trees in constant folded expressions (for internal use only).
 ROSE_DLL_API void deleteExpressionTreeWithOriginalExpressionSubtrees(SgNode* root);

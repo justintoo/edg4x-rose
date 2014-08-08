@@ -1060,10 +1060,10 @@ UnparseLanguageIndependentConstructs::unparseStatement(SgStatement* stmt, SgUnpa
   // Debugging support
      printOutComments (stmt);
 #endif
-	//RMMBEGIN
-	if(stmt->get_file_info() == NULL)
-		return;
-	//RMMEND
+//RMMBEGIN
+if(stmt->get_file_info() == NULL)
+return;
+//RMMEND
 
      ROSE_ASSERT(stmt->get_file_info() != NULL);
 
