@@ -71,10 +71,17 @@ SgSymbol* ASTDeletionSupport::handleDeclaration(SgDeclarationStatement* decl){
         return NULL;
 
     //TMPTEST
-    if(isSgTemplateDeclaration(decl_to_search) && !decl_to_search->get_declaration_associated_with_symbol())
+    if((isSgTemplateDeclaration(decl_to_search) || isSgFunctionDeclaration(decl_to_search)) && !decl_to_search->get_declaration_associated_with_symbol()){
+         printf("deleteAST: Warning! A template declaration and/or function declaration returned NULL when queried for the declaration associated with its symbol. This indicates a flaw in the construction of the AST.\n");
          return NULL;
-    if(isSgNamespaceAliasDeclarationStatement(decl_to_search))
-         return decl_to_search->get_symbol_from_symbol_table();
+    }
+    if(isSgNamespaceAliasDeclarationStatement(decl_to_search)){
+         SgSymbol* s = decl_to_search->get_symbol_from_symbol_table();
+         if(s == NULL)
+             printf("deleteAST: Warning! A namespace alias declaration statement did not have a corresponding namespace symbol."); 
+         else
+             return s;
+    }
 
     if(isSgUseStatement(decl_to_search) || isSgNamelistStatement(decl_to_search) || isSgFortranIncludeLine(decl_to_search) || isSgCommonBlock(decl_to_search) || isSgFormatStatement(decl_to_search) || isSgImplicitStatement(decl_to_search) || 
     isSgAttributeSpecificationStatement(decl_to_search) || isSgJavaPackageStatement(decl_to_search) || isSgJavaImportStatement(decl_to_search)) {
@@ -229,7 +236,7 @@ void ASTDeletionSupport::SafetyVisitor::visit (SgNode* node) {
     //Check to see whether the node has a symbol associated with it.
     SgSymbol* symbol = getAssociatedSymbol(node);
     
-    if(symbol && matchMap->find(symbol) == matchMap->end()){
+    if(symbol && symbol->get_symbol_basis() == node && matchMap->find(symbol) == matchMap->end()){
         symbolList->push_front(symbol);
 
         #ifdef ASTDELETION_SAFETYCHECK_DEBUG
